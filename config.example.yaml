@@ -37,12 +37,14 @@ dps:
 clientes:
   - id: consorcio_roma
     nome: Consórcio Roma
-    # Como reconhecer o e-mail do relatório de comissão (com PDF anexo).
-    # Padrão do assunto: "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 22/10/2026)"
-    # A comparação ignora acentos e maiúsculas; a data "(até ...)" é usada para conferir a leitura do PDF.
-    email_assunto_contem: "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA"
-    # Opcional: restringir também pelo remetente (deixe [] para aceitar qualquer remetente)
-    email_remetentes: []
+    # E-mail que traz o relatório: a Roma manda um por representante, todos com o mesmo
+    # assunto. O seu é reconhecido pelo nome da empresa no corpo e pelo PDF cujo nome
+    # começa com o seu CNPJ (ex.: 1094710100012810AFED7F-....PDF).
+    email_remetentes:
+      - consorcioroma@consorcioroma.com.br
+    email_assunto_contem: "RELATÓRIO DE COMISSÃO EM ANEXO"
+    email_corpo_contem: "L.D.T. COMUNICACAO VISUAL LTDA"
+    anexo_prefixo: "10947101000128"
     # Limites de segurança: fora disso a nota volta para aprovação manual
     valor_minimo: 1.00
     valor_maximo: 50000.00
@@ -75,21 +77,66 @@ clientes:
 
         Responsável: Thomaz Kazuhiko Fukui
 
+    # E-mail de envio da nota — mesmo padrão dos envios manuais
+    # (ex.: "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 22/10/2026)").
+    # Campos disponíveis: {periodo_inicio} {periodo_fim} {valor} {numero_nfse} {chave_acesso}
     envio:
-      # responder no mesmo fio do e-mail do relatório (recomendado)
-      responder_no_fio: true
+      responder_no_fio: false          # e-mail novo (o remetente do relatório não é monitorado)
       para:
         - comissao@consorcioroma.com.br
       cc: []
-      assunto: "NFS-e {numero_nfse} - Comissão {periodo_fim}"
+      anexar_relatorio: true           # anexa o PDF do relatório recebido
+      anexar_xml: false                # o padrão manual só manda o PDF da nota
+      confirmacao_leitura: false       # a Roma sugere pedir confirmação de leitura (item g)
+      # Se você já mandou um e-mail com este assunto (nota feita manualmente), não emite de novo.
+      pular_se_ja_enviado: true
+      assunto: "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até {periodo_fim})"
       corpo: |-
-        Olá,
+        Bom dia! Aqui vai a nota fiscal referente a Comissão sobre Vendas de Cotas de Consórcio.
 
-        Segue em anexo a NFS-e referente à comissão sobre vendas de cotas de consórcio
-        do período de {periodo_inicio} até {periodo_fim}, no valor de R$ {valor}.
+        Períodos apurados: {periodo_inicio} até {periodo_fim}
+        Valor: R$ {valor}
 
-        Chave de acesso: {chave_acesso}
+        Estes são os dados da minha conta:
+
+        Banco: 336 - Banco C6 S.A.
+        Agência: 0001
+        Conta corrente: 5385083-1
+        CNPJ: 10.947.101/0001-28
+        Nome: K/B AGENCY
+        Chave Pix: 10.947.101/0001-28
+
+        Responsável: Thomaz Kazuhiko Fukui
+
+        Anexos:
+        - Nota fiscal nº {numero_nfse}
+        - Relatório de Comissão
+
+        Qualquer dúvida estou a disposição
 
         Atenciosamente,
-        Thomaz Kazuhiko Fukui
-        L.D.T. Comunicação Visual Ltda
+
+        Thomaz Fukui
+        (43) 999510083
+      corpo_html: |-
+        <div dir="ltr" style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px">
+        <p style="margin:0">Bom dia! Aqui vai a nota fiscal referente a <b>Comissão sobre Vendas de Cotas de Consórcio.</b></p>
+        <br>
+        <span style="background-color:rgb(0,255,255)">Períodos apurados: {periodo_inicio} até <b>{periodo_fim}</b></span><br>
+        <span style="background-color:rgb(0,255,255)">Valor: <b>R$ {valor}</b></span>
+        <br><br>
+        <p style="margin:0"><b>Estes são os dados da minha conta:</b></p>
+        <br>
+        <p style="margin:0">Banco: 336 - Banco C6 S.A.</p>
+        <p style="margin:0">Agência: 0001</p>
+        <p style="margin:0">Conta corrente: 5385083-1</p>
+        <p style="margin:0">CNPJ: 10.947.101/0001-28</p>
+        <p style="margin:0">Nome: K/B AGENCY</p>
+        <p style="margin:0">Chave Pix: 10.947.101/0001-28</p>
+        <br>
+        <p style="margin:0">Responsável: Thomaz Kazuhiko Fukui</p>
+        <br><br>
+        <p style="margin:0"><b>Anexos:</b><br>- Nota fiscal nº {numero_nfse}<br>- Relatório de Comissão</p>
+        <br><br>
+        <p style="margin:0">Qualquer dúvida estou a disposição<br><br>Atenciosamente,<br><br><b>Thomaz Fukui</b><br><i>(43) 999510083</i></p>
+        </div>

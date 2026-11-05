@@ -128,7 +128,7 @@ def main(argv=None):
     s.set_defaults(func=cmd_descartar)
 
     s = sub.add_parser("status", help="lista as notas registradas")
-    s.add_argument("filtro", nargs="?", choices=["pendente", "emitida", "enviada", "erro", "descartada"])
+    s.add_argument("filtro", nargs="?", choices=["pendente", "emitida", "enviada", "erro", "descartada", "ja_faturado"])
     s.set_defaults(func=cmd_status)
 
     s = sub.add_parser("ler-relatorio", help="testa a leitura de um PDF de relatório (não emite nada)")

@@ -199,18 +199,23 @@ def ambiente_fake(monkeypatch, tmp_path, pfx):
     FakeApi.emitidas = []
     enviados = []
     monkeypatch.setattr(email_gmail, "enviar", lambda *a, **kw: enviados.append((a, kw)) or "<id>")
+    monkeypatch.setattr(email_gmail, "ja_enviado", lambda *a, **kw: False)
     seg = Segredos(cert_pfx=pfx, cert_senha="senha123", gmail_usuario="eu@gmail.com", gmail_senha_app="x")
     return seg, Estado(tmp_path / "e.db"), enviados
 
 
-ASSUNTO = "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até {})"
+PDF_NOSSO = "1094710100012810AFED7F-45D7-4C41-A758-2FDF008C2177.PDF"
+CORPO_ROMA = """Prezados (as), bom dia/tarde!
+{nome}
+
+Estando tudo correto, solicitamos o envio da nota fiscal de prestação de serviços..."""
 
 
-def email_relatorio(mid="<r1@roma>", ate=None):
-    ate = ate or (date.today() - timedelta(days=5)).strftime("%d/%m/%Y")
-    return email_gmail.EmailRecebido(message_id=mid, remetente="comissao@consorcioroma.com.br",
-                                     assunto=ASSUNTO.format(ate), data="", corpo="segue",
-                                     pdfs=[("rel.pdf", b"%PDF")])
+def email_relatorio(mid="<r1@roma>"):
+    return email_gmail.EmailRecebido(message_id=mid, remetente="consorcioroma@consorcioroma.com.br",
+                                     assunto="RELATÓRIO DE COMISSÃO EM ANEXO", data="",
+                                     corpo=CORPO_ROMA.format(nome="L.D.T. COMUNICACAO VISUAL LTDA"),
+                                     pdfs=[(PDF_NOSSO, b"%PDF relatorio")])
 
 
 def test_modo_manual_cria_pendente_e_avisa(cfg, cliente, ambiente_fake, monkeypatch):
@@ -228,27 +233,47 @@ def test_modo_manual_cria_pendente_e_avisa(cfg, cliente, ambiente_fake, monkeypa
     # homologação: o e-mail da nota vai só para o responsável, nunca para o cliente
     args, kw = enviados[-1]
     assert args[2] == [cfg["email_responsavel"]] and "HOMOLOGAÇÃO" in args[3]
-    assert {a[0] for a in kw["anexos"]} == {"NFSe_15.pdf", "NFSe_15.xml"}
     with pytest.raises(ValueError):
         pipeline.emitir_e_enviar(cfg, seg, estado, nid)  # não emite duas vezes
 
 
-def test_modo_automatico_emite_e_responde_no_fio(cfg, cliente, ambiente_fake, monkeypatch):
+def test_envio_segue_o_padrao_manual(cfg, cliente, ambiente_fake, monkeypatch):
+    """Mesmo formato do e-mail enviado à mão em 28/10/2026 (NFS-e nº 27, até 22/10/2026)."""
     seg, estado, enviados = ambiente_fake
     cfg.update(modo_aprovacao="automatico", ambiente="producao")
-    monkeypatch.setattr(extrator, "extrair", lambda *a: rel())
+    monkeypatch.setattr(extrator, "extrair", lambda *a: rel(
+        valor=Decimal("14162.26"), periodo_fim=date(2026, 10, 22)))
     nid = pipeline.processar_email(cfg, seg, estado, cliente, email_relatorio())
     assert estado.obter(nid)["status"] == "enviada"
-    args, kw = enviados[-1]
-    assert "comissao@consorcioroma.com.br" in args[2]
-    assert cfg["email_responsavel"] in kw["cc"]
-    assert kw["em_resposta_a"].message_id == "<r1@roma>"
+    (de, senha, para, assunto, corpo), kw = enviados[-1]
+    assert para == ["comissao@consorcioroma.com.br"]
+    assert assunto == "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 22/10/2026)"
+    assert "Períodos apurados: 01/08/2025 até 22/10/2026" in corpo
+    assert "Valor: R$ 14.162,26" in corpo and "- Nota fiscal nº 15" in corpo
+    assert "Chave Pix: 10.947.101/0001-28" in corpo
+    assert "<b>R$ 14.162,26</b>" in kw["corpo_html"] and "{" not in kw["corpo_html"]
+    assert kw["em_resposta_a"] is None  # e-mail novo, não resposta
+    assert [a[0] for a in kw["anexos"]] == ["4113700CHAVE.pdf", PDF_NOSSO]
+    assert kw["anexos"][1][1] == b"%PDF relatorio"
 
     # Segundo relatório com o mesmo período → suspeita de duplicidade, fica pendente
     nid2 = pipeline.processar_email(cfg, seg, estado, cliente, email_relatorio("<r2@roma>"))
     assert estado.obter(nid2)["status"] == "pendente"
     assert "duplicidade" in estado.obter(nid2)["motivo"]
     assert len(FakeApi.emitidas) == 1
+
+
+def test_relatorio_ja_faturado_manualmente_nao_emite(cfg, cliente, ambiente_fake, monkeypatch):
+    seg, estado, enviados = ambiente_fake
+    cfg.update(modo_aprovacao="automatico", ambiente="producao")
+    consultas = []
+    monkeypatch.setattr(email_gmail, "ja_enviado", lambda u, s, assunto: consultas.append(assunto) or True)
+    monkeypatch.setattr(extrator, "extrair", lambda *a: rel(periodo_fim=date(2026, 10, 22)))
+    nid = pipeline.processar_email(cfg, seg, estado, cliente, email_relatorio())
+    assert estado.obter(nid)["status"] == "ja_faturado"
+    assert consultas == ["RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 22/10/2026)"]
+    assert FakeApi.emitidas == [] and enviados == []
+    assert estado.ja_processado("<r1@roma>")
 
 
 def test_automatico_com_baixa_confianca_vai_para_aprovacao(cfg, cliente, ambiente_fake, monkeypatch):
@@ -272,23 +297,39 @@ def test_falha_na_leitura_registra_erro(cfg, cliente, ambiente_fake, monkeypatch
     assert "ERRO" in enviados[-1][0][3]
 
 
-# ------------------------------------------------------------------ padrão do assunto
-def test_padrao_do_assunto(cliente):
-    alvo = email_gmail.normalizar(cliente["email_assunto_contem"])
-    assert alvo in email_gmail.normalizar(ASSUNTO.format("22/10/2026"))
-    assert alvo in email_gmail.normalizar("Relatorio de Comissao <> L.D.T. Comunicacao Visual LTDA (ate 30/11/2026)")
-    assert alvo not in email_gmail.normalizar("RELATÓRIO DE COMISSÃO <> OUTRA EMPRESA LTDA")
-    assert email_gmail.data_ate_no_assunto(ASSUNTO.format("22/10/2026")) == date(2026, 10, 22)
+# ------------------------------------------------------------------ reconhecimento do e-mail da Roma
+def _mime(nome_rep, anexo, assunto="RELATÓRIO DE COMISSÃO EM ANEXO", de="consorcioroma@consorcioroma.com.br"):
+    from email.message import EmailMessage
+    m = EmailMessage()
+    m["From"], m["To"], m["Subject"], m["Message-ID"] = de, "thomazfukui@gmail.com", assunto, f"<{anexo}@x>"
+    m.set_content(CORPO_ROMA.format(nome=nome_rep))
+    m.add_attachment(b"%PDF-1.4", maintype="application", subtype="octet-stream", filename=anexo)
+    return m
+
+
+def _filtrar(cliente, msg):
+    return email_gmail.filtrar_mensagem(
+        msg, "thomazfukui@gmail.com", email_gmail.normalizar(cliente["email_assunto_contem"]),
+        email_gmail._so_letras(cliente["email_corpo_contem"]), cliente["anexo_prefixo"])
+
+
+def test_reconhece_so_o_relatorio_da_ldt(cliente):
+    nosso = _filtrar(cliente, _mime("L.D.T. COMUNICACAO VISUAL LTDA", PDF_NOSSO))
+    assert nosso and nosso.pdfs[0][0] == PDF_NOSSO  # PDF vem como octet-stream com extensão .PDF
+    # Mesmo e-mail da Roma, mas de outro representante (você só está em cópia)
+    assert _filtrar(cliente, _mime("RPL CONSORCIOS E INVESTIMENTOS LTDA", "66767734000109859C16AC.PDF")) is None
+    # Corpo com o nosso nome mas PDF de outro CNPJ: ignora
+    assert _filtrar(cliente, _mime("L.D.T. COMUNICACAO VISUAL LTDA", "66767734000109859C16AC.PDF")) is None
+    # Respostas e e-mails enviados por você não contam como relatório novo
+    assert _filtrar(cliente, _mime("L.D.T. COMUNICACAO VISUAL LTDA", PDF_NOSSO, assunto="RE: RELATÓRIO DE COMISSÃO EM ANEXO")) is None
+    assert _filtrar(cliente, _mime("L.D.T. COMUNICACAO VISUAL LTDA", PDF_NOSSO, de="thomazfukui@gmail.com")) is None
+    # O snippet do Gmail mostra "LDT" sem pontos: também reconhece
+    assert _filtrar(cliente, _mime("LDT COMUNICACAO VISUAL LTDA", PDF_NOSSO))
+
+
+def test_utilitarios_de_assunto():
+    a = "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 22/10/2026)"
+    assert email_gmail.data_ate_no_assunto(a) == date(2026, 10, 22)
     assert email_gmail.data_ate_no_assunto("sem data") is None
-    assert email_gmail._e_resposta("Re: " + ASSUNTO) and not email_gmail._e_resposta(ASSUNTO)
-    assert email_gmail._termo_imap(cliente["email_assunto_contem"]).isascii()
-
-
-def test_data_do_assunto_diferente_do_pdf_bloqueia(cfg, cliente, ambiente_fake, monkeypatch):
-    seg, estado, _ = ambiente_fake
-    cfg["modo_aprovacao"] = "automatico"
-    monkeypatch.setattr(extrator, "extrair", lambda *a: rel(periodo_fim=date.today() - timedelta(days=5)))
-    nid = pipeline.processar_email(cfg, seg, estado, cliente, email_relatorio(ate="01/01/2026"))
-    assert estado.obter(nid)["status"] == "pendente"
-    assert "difere da data do assunto" in estado.obter(nid)["motivo"]
-    assert FakeApi.emitidas == []
+    assert email_gmail._e_resposta("Re: " + a) and not email_gmail._e_resposta(a)
+    assert email_gmail._termo_imap("RELATÓRIO DE COMISSÃO EM ANEXO") == "ANEXO"

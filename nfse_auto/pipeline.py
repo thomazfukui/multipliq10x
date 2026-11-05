@@ -108,6 +108,8 @@ def verificar_emails(cfg: dict, seg: Segredos, estado: Estado, dias: int = 30) -
         emails = email_gmail.buscar_relatorios(
             seg.gmail_usuario, seg.gmail_senha_app,
             cliente.get("email_remetentes") or [], cliente.get("email_assunto_contem", ""), dias,
+            corpo_contem=cliente.get("email_corpo_contem", ""),
+            anexo_prefixo=cliente.get("anexo_prefixo", ""),
         )
         for em in emails:
             if not em.message_id or estado.ja_processado(em.message_id):
@@ -115,6 +117,19 @@ def verificar_emails(cfg: dict, seg: Segredos, estado: Estado, dias: int = 30) -
             log.info("Novo relatório de %s: %s", em.remetente, em.assunto)
             criadas.append(processar_email(cfg, seg, estado, cliente, em))
     return criadas
+
+
+class _Campos(dict):
+    def __missing__(self, chave):
+        return "{" + chave + "}"
+
+
+def _formatar(modelo: str, dados: dict, **extra) -> str:
+    campos = _Campos(
+        valor=_moeda(Decimal(dados["valor"])), periodo_inicio=dados["periodo_inicio"],
+        periodo_fim=dados["periodo_fim"], **extra,
+    )
+    return modelo.format_map(campos)
 
 
 def _email_dict(em: email_gmail.EmailRecebido) -> dict:
@@ -135,6 +150,15 @@ def processar_email(cfg: dict, seg: Segredos, estado: Estado, cliente: dict, em:
     dados, motivos = preparar_dados(
         cfg, cliente, rel, data_assunto=email_gmail.data_ate_no_assunto(em.assunto)
     )
+    # Já faturado (ex.: você mandou a nota manualmente)? Então só registra e segue.
+    env = cliente["envio"]
+    if env.get("pular_se_ja_enviado", True):
+        assunto_envio = _formatar(env["assunto"], dados)
+        if email_gmail.ja_enviado(seg.gmail_usuario, seg.gmail_senha_app, assunto_envio):
+            log.info("Relatório até %s já faturado (achei \"%s\" nos enviados).", dados["periodo_fim"], assunto_envio)
+            return estado.criar(em.message_id, cliente["id"], "ja_faturado", dados, _email_dict(em),
+                                f"Já existe e-mail enviado: {assunto_envio}")
+
     nota_id = estado.criar(em.message_id, cliente["id"], "pendente", dados, _email_dict(em))
     for nome, conteudo in em.pdfs:
         (dir_nota(nota_id) / f"relatorio_{nome}").write_bytes(conteudo)
@@ -231,38 +255,36 @@ def enviar_nota(cfg, seg, estado, nota_id, autorizada, danfse: bytes) -> None:
     cliente = cliente_por_id(cfg, nota["cliente_id"])
     dados = json.loads(nota["dados_json"])
     env = cliente["envio"]
-    campos = {
-        "numero_nfse": autorizada.numero_nfse, "chave_acesso": autorizada.chave_acesso,
-        "valor": _moeda(Decimal(dados["valor"])), "periodo_inicio": dados["periodo_inicio"],
-        "periodo_fim": dados["periodo_fim"],
-    }
-    original = None
+    extra = {"numero_nfse": autorizada.numero_nfse, "chave_acesso": autorizada.chave_acesso}
+    assunto = _formatar(env["assunto"], dados, **extra)
+    corpo = _formatar(env["corpo"], dados, **extra)
+    corpo_html = _formatar(env["corpo_html"], dados, **extra) if env.get("corpo_html") else None
+
+    anexos = [(f"{autorizada.chave_acesso}.pdf", danfse, "application/pdf")]
+    if env.get("anexar_xml", False):
+        anexos.append((f"{autorizada.chave_acesso}.xml", autorizada.xml, "application/xml"))
+    if env.get("anexar_relatorio", True):
+        for arq in sorted(dir_nota(nota_id).glob("relatorio_*")):
+            anexos.append((arq.name.removeprefix("relatorio_"), arq.read_bytes(), "application/pdf"))
+
     em = json.loads(nota["email_json"])
+    original = None
+    para = list(env["para"])
     if env.get("responder_no_fio") and em.get("message_id"):
         original = email_gmail.EmailRecebido(
             message_id=em["message_id"], remetente=em["remetente"], assunto=em["assunto"],
             data=em["data"], corpo="", references=em.get("references", ""),
         )
-    para = list(env["para"])
-    if original and original.remetente and original.remetente not in para:
-        para.append(original.remetente)
-    prefixo = "[HOMOLOGAÇÃO - SEM VALOR FISCAL] " if cfg["ambiente"] == "homologacao" else ""
+    cc = list(env.get("cc") or [])
     if cfg["ambiente"] == "homologacao":
         # Em teste, nunca manda para o cliente: só para você.
+        assunto = "[HOMOLOGAÇÃO - SEM VALOR FISCAL] " + assunto
         para, cc, original = [cfg["email_responsavel"]], [], None
-    else:
-        cc = list(env.get("cc") or [])
-        if cfg["email_responsavel"] not in cc + para:
-            cc.append(cfg["email_responsavel"])
 
     email_gmail.enviar(
-        seg.gmail_usuario, seg.gmail_senha_app, para,
-        prefixo + env["assunto"].format(**campos), env["corpo"].format(**campos),
-        anexos=[
-            (f"NFSe_{autorizada.numero_nfse}.pdf", danfse, "application/pdf"),
-            (f"NFSe_{autorizada.numero_nfse}.xml", autorizada.xml, "application/xml"),
-        ],
-        cc=cc, em_resposta_a=original,
+        seg.gmail_usuario, seg.gmail_senha_app, para, assunto, corpo,
+        anexos=anexos, cc=cc, em_resposta_a=original, corpo_html=corpo_html,
+        confirmacao_leitura=env.get("confirmacao_leitura", False),
     )
     estado.atualizar(nota_id, status="enviada")
     log.info("NFS-e %s enviada para %s", autorizada.numero_nfse, ", ".join(para + cc))

@@ -18,13 +18,15 @@ DPS montada e assinada com o certificado A1 → API do Emissor Nacional (nfse.go
 NFS-e autorizada: XML + DANFSe (PDF) → e-mail ao cliente, respondendo no mesmo fio
 ```
 
-**Qual e-mail é processado:** o assunto precisa seguir o padrão
+**Entrada:** o e-mail "RELATÓRIO DE COMISSÃO EM ANEXO" de **consorcioroma@consorcioroma.com.br**. A Roma manda um desses por representante, muitas vezes com você em cópia. O seu é reconhecido por "L.D.T. COMUNICACAO VISUAL LTDA" no corpo e pelo PDF cujo nome começa com o seu CNPJ (`10947101000128…PDF`). Os relatórios dos outros representantes são ignorados.
 
-```
-RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 22/10/2026)
-```
+**Saída (mesmo padrão dos envios manuais):** um e-mail novo para comissao@consorcioroma.com.br com:
 
-e o e-mail precisa ter um PDF anexo. A comparação ignora acentos e maiúsculas. A data de "(até …)" é comparada com a lida no PDF: se forem diferentes, a nota fica para a sua aprovação. Respostas (`Re:`), encaminhamentos e e-mails enviados por você mesmo são ignorados. O padrão fica em `email_assunto_contem` no `config.yaml`.
+- assunto `RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 22/10/2026)`;
+- o texto de sempre: períodos apurados, valor, dados bancários, responsável e a lista de anexos com o número da nota;
+- anexos: o PDF da NFS-e (DANFSe) e o PDF do relatório recebido.
+
+**Sem nota em dobro:** antes de emitir, a automação procura nos seus enviados um e-mail com esse mesmo assunto. Se encontrar (por exemplo, uma nota que você mandou à mão), registra o relatório como `ja_faturado` e não emite nada.
 
 Hoje o projeto está configurado para o **Consórcio Roma** (tomador: Cooperativa Mista Roma, CNPJ 61.550.836/0001-54), com os mesmos campos que você preenche no portal:
 
@@ -69,10 +71,10 @@ python -m nfse_auto testar-certificado
 | Comando | O que faz |
 |---|---|
 | `python -m nfse_auto verificar` | Procura relatórios novos no Gmail (últimos 30 dias) e processa cada um |
-| `python -m nfse_auto status [pendente\|enviada\|erro]` | Lista as notas |
+| `python -m nfse_auto status [pendente\|enviada\|erro\|ja_faturado]` | Lista as notas |
 | `python -m nfse_auto aprovar <id>` | Emite e envia uma nota pendente |
 | `python -m nfse_auto descartar <id>` | Descarta uma nota pendente |
-| `python -m nfse_auto ler-relatorio arquivo.pdf --cliente consorcio_roma --assunto "RELATÓRIO DE COMISSÃO <> ... (até 22/10/2026)"` | Testa a leitura de um PDF, sem emitir nada |
+| `python -m nfse_auto ler-relatorio arquivo.pdf --cliente consorcio_roma` | Testa a leitura de um PDF, sem emitir nada |
 | `python -m nfse_auto gerar-dps --cliente consorcio_roma --valor 100 --fim 2026-10-31` | Gera e imprime o XML assinado, sem enviar |
 
 ### Plano de validação (do teste até o automático)
@@ -81,11 +83,10 @@ python -m nfse_auto testar-certificado
    - Rode `ler-relatorio` com um relatório real e confira o valor e a data lidos.
    - Rode `verificar`. Você recebe um e-mail "Aprovar nota #N". Depois rode `aprovar N` e confira o XML e o PDF que chegarem.
 2. **Primeira nota real**: troque para `ambiente: producao` e mantenha `modo_aprovacao: manual`. Aprove a nota com `aprovar N` e confira no portal nfse.gov.br.
-3. **Automático**: troque para `modo_aprovacao: automatico`. A partir daí, a nota é emitida e enviada sozinha, **exceto** em seis situações, que voltam para a sua aprovação por e-mail:
+3. **Automático**: troque para `modo_aprovacao: automatico`. A partir daí, a nota é emitida e enviada sozinha, **exceto** em cinco situações, que voltam para a sua aprovação por e-mail:
    - a leitura do relatório não teve confiança "alta";
    - o valor está fora do intervalo `valor_minimo`–`valor_maximo` do cliente;
    - o CNPJ do relatório é diferente do tomador cadastrado;
-   - a data final lida no PDF é diferente da data "(até …)" do assunto do e-mail;
    - a data final do período não é posterior à da última nota enviada (proteção contra duplicidade);
    - falta a alíquota do Simples do mês em `aliquota_simples_por_mes`.
 
@@ -128,6 +129,7 @@ Estes itens seguem o leiaute nacional, mas só a primeira emissão em homologaç
 - **Série da DPS** (`dps.serie`). A numeração da automação é independente da usada pelo portal web.
 - **Tributação federal (PIS/COFINS)**. O portal marca "00 – Nenhum / Não retidos". A automação não envia esse grupo, que é opcional no leiaute.
 - **Quebras de linha na descrição**. Vão como estão no texto do `config.yaml`.
+- **Razão social do tomador**. O seu PDF de instruções diz "COOPERATIVA MISTA ROMA", mas o e-mail da Roma diz "COOPERATIVA ADMINISTRADORA DE CONSÓRCIOS ROMA" (mesmo CNPJ). Na nota vale o nome do cadastro da Receita; ajuste `tomador.razao_social` se preferir.
 
 ## Testes
 

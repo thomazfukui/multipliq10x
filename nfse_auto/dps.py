@@ -91,6 +91,7 @@ def montar_dps(cfg: dict, cliente: dict, nota: DadosNota) -> etree._Element:
     _sub(inf, "nDPS", nota.numero_dps)
     _sub(inf, "dCompet", nota.competencia.isoformat())
     _sub(inf, "tpEmit", "1")  # 1 = Prestador
+    _sub(inf, "finNFSe", "0")  # 0 = NFS-e regular (obrigatório no leiaute da reforma tributária)
     _sub(inf, "cLocEmi", prest["municipio_ibge"])
 
     # Prestador: quando ele mesmo é o emitente, só CNPJ + regime (nome/endereço vêm do cadastro).

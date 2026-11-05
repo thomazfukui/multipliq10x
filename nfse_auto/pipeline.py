@@ -222,8 +222,17 @@ def emitir_e_enviar(cfg: dict, seg: Segredos, estado: Estado, nota_id: int, envi
                          numero_nfse=autorizada.numero_nfse, motivo="")
         ja_emitida = True
         log.info("NFS-e %s autorizada (chave %s)", autorizada.numero_nfse, autorizada.chave_acesso)
-        danfse = api.baixar_danfse(autorizada.chave_acesso)
-        (pasta / f"danfse_{autorizada.chave_acesso}.pdf").write_bytes(danfse)
+        try:
+            danfse = api.baixar_danfse(autorizada.chave_acesso)
+        except ErroSefin as e:
+            # A Produção Restrita não tem o serviço de DANFSe (o ADN de teste só expõe /DFe e
+            # /NFSe/{chave}/Eventos). Em homologação, segue sem o PDF e anexa o XML no lugar.
+            if cfg["ambiente"] != "homologacao" or e.status != 404:
+                raise
+            log.warning("DANFSe indisponível na Produção Restrita; e-mail de teste vai com o XML.")
+            danfse = None
+        if danfse:
+            (pasta / f"danfse_{autorizada.chave_acesso}.pdf").write_bytes(danfse)
     except Exception as e:
         estado.atualizar(nota_id, status="emitida" if ja_emitida else "erro", motivo=str(e))
         _alertar(cfg, seg, nota_id, f"Falha ao emitir/baixar a NFS-e da nota {nota_id}.\n\nErro: {e}")
@@ -261,7 +270,7 @@ def _emitir(cfg, estado, api, nota, cliente, dados, cert, pasta):
         raise
 
 
-def enviar_nota(cfg, seg, estado, nota_id, autorizada, danfse: bytes) -> None:
+def enviar_nota(cfg, seg, estado, nota_id, autorizada, danfse: bytes | None) -> None:
     nota = estado.obter(nota_id)
     cliente = cliente_por_id(cfg, nota["cliente_id"])
     dados = json.loads(nota["dados_json"])
@@ -271,8 +280,8 @@ def enviar_nota(cfg, seg, estado, nota_id, autorizada, danfse: bytes) -> None:
     corpo = _formatar(env["corpo"], dados, **extra)
     corpo_html = _formatar(env["corpo_html"], dados, **extra) if env.get("corpo_html") else None
 
-    anexos = [(f"{autorizada.chave_acesso}.pdf", danfse, "application/pdf")]
-    if env.get("anexar_xml", False):
+    anexos = [(f"{autorizada.chave_acesso}.pdf", danfse, "application/pdf")] if danfse else []
+    if env.get("anexar_xml", False) or not danfse:
         anexos.append((f"{autorizada.chave_acesso}.xml", autorizada.xml, "application/xml"))
     if env.get("anexar_relatorio", True):
         for arq in sorted(dir_nota(estado, nota_id).glob("relatorio_*")):

@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import base64
 import json
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
@@ -59,8 +60,9 @@ SCHEMA = {
 INSTRUCOES = """Você recebe um relatório de comissão em PDF enviado por e-mail a um representante
 comercial, que precisa emitir uma NFS-e com base nele. Extraia:
 
-- o valor TOTAL da comissão que deve ser faturado na nota (não some estornos nem itens
-  marcados como já pagos, a menos que o relatório indique que o total a faturar os inclui);
+- o valor TOTAL da comissão que deve ser faturado na nota. No "FECHAMENTO DE COMISSÃO" é o
+  "Valor Líquido" do cabeçalho; se Débitos, IRRF ou ISS forem diferentes de zero, use o líquido
+  mas marque confiança "media" e explique;
 - a data final do período do relatório (a nota cita "Referente ao período: ... até <data final>").
   O assunto do e-mail costuma trazer essa data, ex.: "(até 22/10/2026)"; se o PDF mostrar
   outra data, use a do PDF, marque confiança "media" e explique;
@@ -75,6 +77,78 @@ class ErroExtracao(Exception):
     pass
 
 
+# --------------------------------------------------------------------------- leitor exato (formato Roma)
+_NUM = r"\d{1,3}(?:\.\d{3})*,\d{2}"
+
+
+def _dec(br: str) -> Decimal:
+    return Decimal(br.replace(".", "").replace(",", "."))
+
+
+def ler_texto_roma(texto: str, cnpj_prestador: str) -> "DadosRelatorio | None":
+    """Lê o cabeçalho do "FECHAMENTO DE COMISSÃO" da Roma, sem IA.
+
+    Cabeçalho (texto extraído do PDF):
+        BENEFICIÁRIO : L.D.T. COMUNICACAO VISUAL LTDA Débitos Créditos IRRF ISS Valor Líquido
+        0,00 14.162,26 0,00 0,00 14.162,2610947101000128
+        Período de : 01/08/2025 até 22/10/2026
+        ...
+        Total Geral 218 26.794.998,93 14.162,26
+
+    Devolve None se o texto não estiver nesse formato (aí o Claude é usado).
+    """
+    m_cab = re.search(r"BENEFICI.RIO\s*:.*?L.quido\s*\n([^\n]*)", texto)
+    m_per = re.search(r"Per.odo de\s*:\s*(\d{2}/\d{2}/\d{4})\s*at.\s*(\d{2}/\d{2}/\d{4})", texto)
+    if not (m_cab and m_per):
+        return None
+    linha = m_cab.group(1)
+    valores = re.findall(_NUM, linha)
+    if len(valores) < 5:
+        return None
+    debitos, creditos, irrf, iss, liquido = (_dec(v) for v in valores[:5])
+    alertas: list[str] = []
+    if cnpj_prestador and cnpj_prestador not in re.sub(r"\D", "", linha):
+        alertas.append("O CNPJ do beneficiário no relatório não é o da sua empresa.")
+    if liquido != creditos - debitos - irrf - iss:
+        alertas.append("Valor líquido não fecha com créditos − débitos − IRRF − ISS.")
+    if debitos or irrf or iss:
+        alertas.append(
+            f"Relatório com débitos R$ {valores[0]}, IRRF R$ {valores[2]} ou ISS R$ {valores[3]}: "
+            "confira se a nota deve sair pelo líquido."
+        )
+    m_tot = re.search(rf"Total Geral\s+\d+\s+{_NUM}\s+({_NUM})", texto)
+    if m_tot and _dec(m_tot.group(1)) != creditos:
+        alertas.append(f"Total Geral (R$ {m_tot.group(1)}) difere dos créditos do cabeçalho (R$ {valores[1]}).")
+    return DadosRelatorio(
+        valor=liquido,
+        periodo_inicio=_data(m_per.group(1)),
+        periodo_fim=_data(m_per.group(2)),
+        cnpj_tomador="",
+        instrucoes="",
+        confianca="alta" if not alertas else "media",
+        justificativa=(
+            f"Leitor exato do formato Roma: Valor Líquido do cabeçalho (créditos R$ {valores[1]}, "
+            f"débitos R$ {valores[0]}, IRRF R$ {valores[2]}, ISS R$ {valores[3]})"
+            + (f"; Total Geral R$ {m_tot.group(1)}" if m_tot else "")
+            + "."
+        ),
+        alertas=alertas,
+        leitor="roma",
+    )
+
+
+def ler_pdf_roma(pdf: bytes, cnpj_prestador: str) -> "DadosRelatorio | None":
+    try:
+        from pypdf import PdfReader
+        import io
+
+        leitor = PdfReader(io.BytesIO(pdf))
+        texto = "\n".join(p.extract_text() or "" for p in leitor.pages)
+    except Exception:  # noqa: BLE001 — PDF estranho: deixa para o Claude
+        return None
+    return ler_texto_roma(texto, cnpj_prestador)
+
+
 @dataclass
 class DadosRelatorio:
     valor: Decimal
@@ -84,6 +158,8 @@ class DadosRelatorio:
     instrucoes: str
     confianca: str
     justificativa: str
+    alertas: list = field(default_factory=list)
+    leitor: str = "claude"
 
 
 def _data(texto: str) -> date | None:

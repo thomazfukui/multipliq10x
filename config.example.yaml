@@ -51,7 +51,8 @@ clientes:
 
     tomador:
       cnpj: "61550836000154"
-      razao_social: COOPERATIVA MISTA ROMA
+      # Nome atualizado pela Roma (Resolução Conjunta BCB/CMN nº 17/2025)
+      razao_social: COOPERATIVA ADMINISTRADORA DE CONSÓRCIOS ROMA
       telefone: "1148103399"
       email: comissao@consorcioroma.com.br
 

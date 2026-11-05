@@ -11,3 +11,6 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+
+# Relatórios reais (têm dados de clientes) — só para teste local
+tests/dados/

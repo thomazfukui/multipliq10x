@@ -59,6 +59,7 @@ def preparar_dados(
             f"Sem alíquota do Simples para {competencia:%m/%Y} em 'aliquota_simples_por_mes' (config.yaml)."
         )
 
+    motivos.extend(rel.alertas)
     if rel.confianca != "alta":
         motivos.append(f"Confiança da leitura do relatório: {rel.confianca}.")
     vmin, vmax = Decimal(str(cliente["valor_minimo"])), Decimal(str(cliente["valor_maximo"]))
@@ -139,9 +140,19 @@ def _email_dict(em: email_gmail.EmailRecebido) -> dict:
     }
 
 
+def _ler_relatorio(cfg: dict, em: email_gmail.EmailRecebido) -> extrator.DadosRelatorio:
+    """Primeiro o leitor exato do formato Roma; se o formato não bater, usa o Claude."""
+    cnpj = dps_mod.so_digitos(cfg["prestador"]["cnpj"])
+    for _, conteudo in em.pdfs:
+        rel = extrator.ler_pdf_roma(conteudo, cnpj)
+        if rel:
+            return rel
+    return extrator.extrair([c for _, c in em.pdfs], em.corpo, em.assunto)
+
+
 def processar_email(cfg: dict, seg: Segredos, estado: Estado, cliente: dict, em: email_gmail.EmailRecebido) -> int:
     try:
-        rel = extrator.extrair([c for _, c in em.pdfs], em.corpo, em.assunto)
+        rel = _ler_relatorio(cfg, em)
     except Exception as e:  # noqa: BLE001 — qualquer falha vira pendência para o responsável
         nota_id = estado.criar(em.message_id, cliente["id"], "erro", {}, _email_dict(em), f"Falha ao ler o relatório: {e}")
         _alertar(cfg, seg, nota_id, f"Não consegui ler o relatório do e-mail \"{em.assunto}\".\n\nErro: {e}")

@@ -6,7 +6,7 @@ Automatiza o ciclo de faturamento da **L.D.T. Comunicação Visual Ltda** (CNPJ 
 E-mail com relatório de comissão (PDF)
         │  Gmail (IMAP)
         ▼
-Leitura do PDF com o Claude → valor + data final do período
+Leitura do PDF (leitor exato do formato Roma; Claude se o formato mudar) → valor + período
         │  checagens de segurança
         ▼
 Aprovação (manual no início, automática depois)
@@ -25,6 +25,10 @@ NFS-e autorizada: XML + DANFSe (PDF) → e-mail ao cliente, respondendo no mesmo
 - assunto `RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 22/10/2026)`;
 - o texto de sempre: períodos apurados, valor, dados bancários, responsável e a lista de anexos com o número da nota;
 - anexos: o PDF da NFS-e (DANFSe) e o PDF do relatório recebido.
+
+**Leitura do relatório:** o "FECHAMENTO DE COMISSÃO" da Roma é lido por um leitor exato, sem IA e sem custo. Ele pega o **Valor Líquido** e o **Período** do cabeçalho e confere com créditos − débitos − IRRF − ISS e com o "Total Geral". Se houver débitos, IRRF ou ISS, ou se os números não fecharem, a nota vai para a sua aprovação. Só se o formato do PDF mudar é que o Claude é usado (e aí precisa da `ANTHROPIC_API_KEY`).
+
+**Tomador:** COOPERATIVA ADMINISTRADORA DE CONSÓRCIOS ROMA, CNPJ 61.550.836/0001-54. O nome mudou para atender à Resolução Conjunta BCB/CMN nº 17/2025.
 
 **Sem nota em dobro:** antes de emitir, a automação procura nos seus enviados um e-mail com esse mesmo assunto. Se encontrar (por exemplo, uma nota que você mandou à mão), registra o relatório como `ja_faturado` e não emite nada.
 
@@ -58,7 +62,7 @@ Preencha o `.env` com três credenciais:
    - **Windows**: rode `certmgr.msc`, vá em *Pessoal → Certificados*, clique com o botão direito no certificado, escolha *Todas as tarefas → Exportar* e marque *Sim, exportar a chave privada* (formato `.pfx`).
    - Se você ainda tiver o `.pfx` original enviado pela certificadora, pode usar ele direto.
 2. **Senha de app do Gmail**: crie em <https://myaccount.google.com/apppasswords>. É preciso ter a verificação em duas etapas ativa.
-3. **Chave da API da Anthropic**: crie em <https://console.anthropic.com>. É usada só para ler o PDF do relatório (custa alguns centavos por relatório).
+3. **Chave da API da Anthropic** (opcional): crie em <https://console.anthropic.com>. Só é usada se o PDF do relatório vier num formato diferente do atual.
 
 Depois confira o certificado:
 
@@ -129,7 +133,6 @@ Estes itens seguem o leiaute nacional, mas só a primeira emissão em homologaç
 - **Série da DPS** (`dps.serie`). A numeração da automação é independente da usada pelo portal web.
 - **Tributação federal (PIS/COFINS)**. O portal marca "00 – Nenhum / Não retidos". A automação não envia esse grupo, que é opcional no leiaute.
 - **Quebras de linha na descrição**. Vão como estão no texto do `config.yaml`.
-- **Razão social do tomador**. O seu PDF de instruções diz "COOPERATIVA MISTA ROMA", mas o e-mail da Roma diz "COOPERATIVA ADMINISTRADORA DE CONSÓRCIOS ROMA" (mesmo CNPJ). Na nota vale o nome do cadastro da Receita; ajuste `tomador.razao_social` se preferir.
 
 ## Testes
 

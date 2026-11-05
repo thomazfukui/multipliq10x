@@ -50,7 +50,12 @@ def cmd_status(args, cfg):
 
 def cmd_ler_relatorio(args, cfg):
     pdfs = [Path(p).read_bytes() for p in args.pdf]
-    rel = extrator.extrair(pdfs, args.corpo or "", args.assunto or "")
+    rel = None
+    if not args.usar_claude:
+        cnpj = dps_mod.so_digitos(cfg["prestador"]["cnpj"])
+        rel = next((r for r in (extrator.ler_pdf_roma(c, cnpj) for c in pdfs) if r), None)
+    rel = rel or extrator.extrair(pdfs, args.corpo or "", args.assunto or "")
+    print(f"Leitor:        {rel.leitor}")
     print(f"Valor:         R$ {rel.valor}")
     print(f"Período:       {rel.periodo_inicio or '(não informado)'} até {rel.periodo_fim}")
     print(f"CNPJ tomador:  {rel.cnpj_tomador or '(não informado)'}")
@@ -58,6 +63,8 @@ def cmd_ler_relatorio(args, cfg):
     print(f"Justificativa: {rel.justificativa}")
     if rel.instrucoes:
         print(f"Instruções:    {rel.instrucoes}")
+    for a in rel.alertas:
+        print(f"ALERTA:        {a}")
     if args.cliente:
         dados, motivos = pipeline.preparar_dados(
             cfg, cliente_por_id(cfg, args.cliente), rel,
@@ -136,6 +143,7 @@ def main(argv=None):
     s.add_argument("--corpo", help="texto do e-mail, se quiser incluir")
     s.add_argument("--assunto", help="assunto do e-mail, ex.: 'RELATÓRIO DE COMISSÃO <> ... (até 22/10/2026)'")
     s.add_argument("--cliente", help="id do cliente, para mostrar a descrição montada")
+    s.add_argument("--usar-claude", action="store_true", help="pula o leitor exato e usa o Claude")
     s.set_defaults(func=cmd_ler_relatorio)
 
     s = sub.add_parser("gerar-dps", help="gera e assina uma DPS de teste e imprime o XML (não envia)")

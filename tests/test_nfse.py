@@ -82,7 +82,7 @@ def test_montar_dps_campos(cfg, cliente):
     assert g("n:infDPS/n:prest/n:regTrib/n:opSimpNac") == "3"
     assert g("n:infDPS/n:prest/n:regTrib/n:regApTribSN") == "1"
     assert g("n:infDPS/n:toma/n:CNPJ") == "61550836000154"
-    assert g("n:infDPS/n:toma/n:xNome") == "COOPERATIVA MISTA ROMA"
+    assert g("n:infDPS/n:toma/n:xNome") == "COOPERATIVA ADMINISTRADORA DE CONSÓRCIOS ROMA"
     assert g("n:infDPS/n:serv/n:cServ/n:cTribNac") == "170601"
     assert g("n:infDPS/n:serv/n:cServ/n:cNBS") == "114061900"
     assert g("n:infDPS/n:serv/n:locPrest/n:cLocPrestacao") == "4113700"
@@ -333,3 +333,64 @@ def test_utilitarios_de_assunto():
     assert email_gmail.data_ate_no_assunto("sem data") is None
     assert email_gmail._e_resposta("Re: " + a) and not email_gmail._e_resposta(a)
     assert email_gmail._termo_imap("RELATÓRIO DE COMISSÃO EM ANEXO") == "ANEXO"
+
+
+# ------------------------------------------------------------------ leitor exato do relatório da Roma
+# Só o cabeçalho, como sai do PDF real (sem os lançamentos, que têm dados de clientes).
+CABECALHO_ROMA = """COOPERATIVA MISTA ROMA
+ FECHAMENTO DE COMISSÃO
+1 7dePágina
+BENEFICIÁRIO : L.D.T. COMUNICACAO VISUAL LTDA Débitos Créditos IRRF ISS Valor Líquido
+{deb} {cred} {irrf} {iss} {liq}10947101000128
+Período de : 01/08/2025 até 22/10/2026
+Prévia
+Sub-Total do Vendedor 1 147.617,83 63,33
+Total Geral 218 26.794.998,93 {total}
+16:16:3327/10/2026ROSANGELA ZIDORO -"""
+
+
+def cab(deb="0,00", cred="14.162,26", irrf="0,00", iss="0,00", liq="14.162,26", total="14.162,26"):
+    return CABECALHO_ROMA.format(deb=deb, cred=cred, irrf=irrf, iss=iss, liq=liq, total=total)
+
+
+def test_leitor_roma_relatorio_ate_22_10_2026():
+    r = extrator.ler_texto_roma(cab(), "10947101000128")
+    assert r.valor == Decimal("14162.26")
+    assert r.periodo_inicio == date(2025, 8, 1) and r.periodo_fim == date(2026, 10, 22)
+    assert r.confianca == "alta" and r.alertas == [] and r.leitor == "roma"
+
+
+def test_leitor_roma_com_descontos_pede_conferencia():
+    r = extrator.ler_texto_roma(cab(deb="100,00", irrf="50,00", liq="14.012,26"), "10947101000128")
+    assert r.valor == Decimal("14012.26") and r.confianca == "media"
+    assert any("líquido" in a for a in r.alertas)
+
+
+def test_leitor_roma_inconsistencias():
+    assert extrator.ler_texto_roma(cab(liq="14.000,00"), "10947101000128").confianca == "media"
+    assert "Total Geral" in " ".join(extrator.ler_texto_roma(cab(total="1,00"), "10947101000128").alertas)
+    assert "CNPJ" in " ".join(extrator.ler_texto_roma(cab(), "11111111000111").alertas)
+
+
+def test_leitor_roma_formato_desconhecido_devolve_none():
+    assert extrator.ler_texto_roma("Relatório qualquer\nTotal: 10,00", "10947101000128") is None
+    assert extrator.ler_pdf_roma(b"nao e pdf", "10947101000128") is None
+
+
+def test_leitor_roma_no_pdf_real_se_disponivel():
+    pdf = Path(__file__).parent / "dados" / "relatorio_roma_ate_22-10-2026.pdf"
+    if not pdf.exists():
+        pytest.skip("PDF real não versionado (tem dados de clientes)")
+    r = extrator.ler_pdf_roma(pdf.read_bytes(), "10947101000128")
+    assert (r.valor, r.periodo_fim, r.confianca) == (Decimal("14162.26"), date(2026, 10, 22), "alta")
+
+
+def test_alertas_do_leitor_bloqueiam_automatico(cfg, cliente):
+    r = extrator.ler_texto_roma(cab(deb="100,00", liq="14.062,26"), "10947101000128")
+    _, motivos = pipeline.preparar_dados(cfg, cliente, r, hoje=date(2026, 11, 5))
+    assert any("débitos" in m for m in motivos)
+
+
+def test_tomador_com_nome_novo(cfg, cliente):
+    raiz = dps_mod.montar_dps(cfg, cliente, nota_exemplo())
+    assert raiz.findtext("n:infDPS/n:toma/n:xNome", namespaces=NS) == "COOPERATIVA ADMINISTRADORA DE CONSÓRCIOS ROMA"

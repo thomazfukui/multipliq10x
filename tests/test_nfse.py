@@ -377,12 +377,16 @@ def test_leitor_roma_formato_desconhecido_devolve_none():
     assert extrator.ler_pdf_roma(b"nao e pdf", "10947101000128") is None
 
 
-def test_leitor_roma_no_pdf_real_se_disponivel():
-    pdf = Path(__file__).parent / "dados" / "relatorio_roma_ate_22-10-2026.pdf"
+@pytest.mark.parametrize("arquivo, valor, fim", [
+    ("relatorio_roma_ate_22-10-2026.pdf", "14162.26", date(2026, 10, 22)),  # = NFS-e nº 27
+    ("relatorio_roma_03-11-2026.pdf", "2986.09", date(2026, 10, 29)),
+])
+def test_leitor_roma_nos_pdfs_reais_se_disponiveis(arquivo, valor, fim):
+    pdf = Path(__file__).parent / "dados" / arquivo
     if not pdf.exists():
         pytest.skip("PDF real não versionado (tem dados de clientes)")
     r = extrator.ler_pdf_roma(pdf.read_bytes(), "10947101000128")
-    assert (r.valor, r.periodo_fim, r.confianca) == (Decimal("14162.26"), date(2026, 10, 22), "alta")
+    assert (r.valor, r.periodo_fim, r.confianca) == (Decimal(valor), fim, "alta")
 
 
 def test_alertas_do_leitor_bloqueiam_automatico(cfg, cliente):

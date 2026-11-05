@@ -1,0 +1,93 @@
+# Configuração da automação de NFS-e.
+# Copie para config.yaml e ajuste. Segredos (certificado, senhas, chaves) ficam no .env.
+
+# "homologacao" = Produção Restrita do Emissor Nacional (notas de teste, sem valor fiscal)
+# "producao"    = notas reais
+ambiente: homologacao
+
+# manual     = cada nota fica pendente até você rodar `python -m nfse_auto aprovar <id>`
+# automatico = emite e envia sozinho (só quando a extração for confiável; senão volta para manual)
+modo_aprovacao: manual
+
+# E-mail que recebe as prévias para aprovação e os alertas de erro
+email_responsavel: seuemail@gmail.com
+
+prestador:
+  cnpj: "10947101000128"
+  razao_social: L.D.T. COMUNICACAO VISUAL LTDA
+  municipio_ibge: "4113700"        # Londrina/PR
+  inscricao_municipal: ""           # opcional
+  # Simples Nacional — ME/EPP
+  op_simples_nacional: 3            # 1=Não optante, 2=MEI, 3=ME/EPP
+  regime_apuracao_sn: 1             # 1=Tributos federais e municipal pelo SN
+  regime_especial: 0                # 0=Nenhum
+
+# Alíquota do Simples Nacional por mês de competência (AAAA-MM).
+# Se o mês da nota não estiver aqui, a automação NÃO emite e avisa você.
+aliquota_simples_por_mes:
+  "2026-11": 2.01
+
+dps:
+  serie: "1"
+  # Próximo número de DPS. A automação incrementa sozinha (salvo em dados/estado.db).
+  numero_inicial: 1
+  versao_layout: "1.00"
+
+# Cada cliente: como reconhecer o e-mail do relatório e como montar a nota.
+clientes:
+  - id: consorcio_roma
+    nome: Consórcio Roma
+    # Filtros do e-mail que traz o relatório de comissão (PDF anexo)
+    email_remetentes:
+      - comissao@consorcioroma.com.br
+    email_assunto_contem: ""        # opcional, ex.: "relatório de comissão"
+    # Limites de segurança: fora disso a nota volta para aprovação manual
+    valor_minimo: 1.00
+    valor_maximo: 50000.00
+
+    tomador:
+      cnpj: "61550836000154"
+      razao_social: COOPERATIVA MISTA ROMA
+      telefone: "1148103399"
+      email: comissao@consorcioroma.com.br
+
+    servico:
+      codigo_tributacao_nacional: "170601"   # 17.06.01 Propaganda e publicidade...
+      codigo_nbs: "114061900"                # Serviços de propaganda não classificados...
+      municipio_prestacao_ibge: "4113700"    # Londrina/PR
+      # {periodo_inicio} e {periodo_fim} vêm do relatório (dd/mm/aaaa).
+      # Se o relatório não trouxer o início, usa periodo_inicio_padrao.
+      periodo_inicio_padrao: "01/08/2025"
+      descricao: |-
+        Comissão sobre Vendas de Cotas de Consórcio
+        Referente ao período: {periodo_inicio} até {periodo_fim}
+
+        Estes são os dados da minha conta:
+
+        Banco: 336 - Banco C6 S.A.
+        Agência: 0001
+        Conta corrente: 5385083-1
+        CNPJ: 10.947.101/0001-28
+        Nome: K/B AGENCY
+        Chave Pix: 10.947.101/0001-28
+
+        Responsável: Thomaz Kazuhiko Fukui
+
+    envio:
+      # responder no mesmo fio do e-mail do relatório (recomendado)
+      responder_no_fio: true
+      para:
+        - comissao@consorcioroma.com.br
+      cc: []
+      assunto: "NFS-e {numero_nfse} - Comissão {periodo_fim}"
+      corpo: |-
+        Olá,
+
+        Segue em anexo a NFS-e referente à comissão sobre vendas de cotas de consórcio
+        do período de {periodo_inicio} até {periodo_fim}, no valor de R$ {valor}.
+
+        Chave de acesso: {chave_acesso}
+
+        Atenciosamente,
+        Thomaz Kazuhiko Fukui
+        L.D.T. Comunicação Visual Ltda

@@ -1,0 +1,13 @@
+# Segredos — nunca versionar
+.env
+*.pfx
+*.p12
+*.pem
+config.yaml
+
+# Estado local e saídas
+dados/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/

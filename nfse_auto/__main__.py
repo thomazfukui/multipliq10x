@@ -18,21 +18,21 @@ from .estado import Estado
 
 def cmd_verificar(args, cfg):
     seg = carregar_segredos()
-    ids = pipeline.verificar_emails(cfg, seg, Estado(), dias=args.dias)
+    ids = pipeline.verificar_emails(cfg, seg, Estado(ambiente=cfg["ambiente"]), dias=args.dias)
     print(f"{len(ids)} relatório(s) novo(s) processado(s).")
     for i in ids:
-        _mostrar(Estado().obter(i))
+        _mostrar(Estado(ambiente=cfg["ambiente"]).obter(i))
 
 
 def cmd_aprovar(args, cfg):
     seg = carregar_segredos()
-    estado = Estado()
+    estado = Estado(ambiente=cfg["ambiente"])
     pipeline.emitir_e_enviar(cfg, seg, estado, args.id, enviar_email=not args.sem_email)
     _mostrar(estado.obter(args.id))
 
 
 def cmd_descartar(args, cfg):
-    estado = Estado()
+    estado = Estado(ambiente=cfg["ambiente"])
     nota = estado.obter(args.id)
     if nota is None or nota["status"] in ("emitida", "enviada"):
         sys.exit("Só é possível descartar notas pendentes ou com erro.")
@@ -41,7 +41,7 @@ def cmd_descartar(args, cfg):
 
 
 def cmd_status(args, cfg):
-    notas = Estado().listar(args.filtro)
+    notas = Estado(ambiente=cfg["ambiente"]).listar(args.filtro)
     if not notas:
         print("Nenhuma nota registrada.")
     for n in notas:

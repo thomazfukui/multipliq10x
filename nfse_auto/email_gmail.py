@@ -165,7 +165,8 @@ def ja_enviado(usuario: str, senha: str, assunto: str, dias: int = 180) -> bool:
                 continue
             cab = email.message_from_bytes(partes[0][1], policy=email.policy.default)
             assunto_enviado = str(cab.get("Subject", ""))
-            if not _e_resposta(assunto_enviado) and alvo in normalizar(assunto_enviado):
+            # Assunto idêntico: o e-mail de teste "[HOMOLOGAÇÃO ...] RELATÓRIO..." não conta.
+            if normalizar(assunto_enviado) == alvo:
                 return True
     return False
 

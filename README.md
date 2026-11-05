@@ -48,27 +48,16 @@ Hoje o projeto está configurado para o **Consórcio Roma** (tomador: Cooperativ
 
 ## Instalação
 
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp config.example.yaml config.yaml
-cp .env.example .env
-```
-
-Preencha o `.env` com três credenciais:
-
-1. **Certificado A1 em arquivo `.pfx`**. A API exige o arquivo do certificado; não basta ele estar instalado no navegador. Como exportar:
-   - **macOS**: abra *Acesso às Chaves*, procure o certificado da empresa, clique com o botão direito em *Exportar*, escolha o formato `.p12` e defina uma senha.
-   - **Windows**: rode `certmgr.msc`, vá em *Pessoal → Certificados*, clique com o botão direito no certificado, escolha *Todas as tarefas → Exportar* e marque *Sim, exportar a chave privada* (formato `.pfx`).
-   - Se você ainda tiver o `.pfx` original enviado pela certificadora, pode usar ele direto.
-2. **Senha de app do Gmail**: crie em <https://myaccount.google.com/apppasswords>. É preciso ter a verificação em duas etapas ativa.
-3. **Chave da API da Anthropic** (opcional): crie em <https://console.anthropic.com>. Só é usada se o PDF do relatório vier num formato diferente do atual.
-
-Depois confira o certificado:
+**No Mac, siga o passo a passo em [`docs/INSTALACAO_MAC.md`](docs/INSTALACAO_MAC.md).** Em resumo:
 
 ```bash
-python -m nfse_auto testar-certificado
+./scripts/instalar_mac.sh          # cria .venv, config.yaml e .env
+# copie o certificado para segredos/certificado.pfx e preencha o .env
+.venv/bin/python -m nfse_auto testar-certificado
+./scripts/agendar_mac.sh           # depois de validado: roda de hora em hora
 ```
+
+O `.env` guarda o caminho e a senha do certificado A1 e a senha de app do Gmail (<https://myaccount.google.com/apppasswords>). A `ANTHROPIC_API_KEY` é opcional. `.env`, `config.yaml`, `segredos/` e `dados/` nunca vão para o git.
 
 ## Como usar
 
@@ -118,7 +107,7 @@ crontab -e
 
 ## Onde ficam os dados
 
-Os arquivos ficam em `dados/`, que está fora do git:
+Os arquivos ficam em `dados/homologacao/` e `dados/producao/` (registros separados, para o teste não interferir na produção), fora do git:
 
 - `estado.db`: e-mails já processados, status de cada nota e numeração da DPS. Um mesmo e-mail nunca gera duas notas, e um número de DPS nunca é reutilizado.
 - `notas/00001/`: o relatório recebido, a DPS assinada, a NFS-e (XML), o DANFSe (PDF) e, se houver, o erro devolvido pela Receita.
@@ -137,6 +126,7 @@ Estes itens seguem o leiaute nacional, mas só a primeira emissão em homologaç
 ## Testes
 
 ```bash
+pip install -r requirements-dev.txt   # no Mac: brew install libxmlsec1 antes
 pytest -q
 ```
 

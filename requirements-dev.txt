@@ -1,0 +1,3 @@
+-r requirements.txt
+pytest>=8
+xmlsec>=1.3  # confere a assinatura nos testes (no Mac: brew install libxmlsec1)

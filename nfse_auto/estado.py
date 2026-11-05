@@ -33,9 +33,12 @@ CREATE TABLE IF NOT EXISTS contadores (
 
 
 class Estado:
-    def __init__(self, caminho: Path | None = None):
-        caminho = Path(caminho or DIR_DADOS / "estado.db")
+    def __init__(self, caminho: Path | None = None, ambiente: str = "homologacao"):
+        """Um registro por ambiente: o teste em homologação não marca relatórios como
+        processados para a produção (dados/homologacao/ e dados/producao/)."""
+        caminho = Path(caminho or DIR_DADOS / ambiente / "estado.db")
         caminho.parent.mkdir(parents=True, exist_ok=True)
+        self.pasta = caminho.parent
         self.db = sqlite3.connect(caminho)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(ESQUEMA)

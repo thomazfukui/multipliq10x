@@ -11,7 +11,7 @@ from pathlib import Path
 from . import dps as dps_mod
 from . import email_gmail, extrator
 from .certificado import CertificadoA1
-from .config import DIR_DADOS, Segredos, cliente_por_id
+from .config import Segredos, cliente_por_id
 from .estado import Estado
 from .sefin import ClienteSefin, ErroSefin
 
@@ -26,8 +26,8 @@ def _moeda(v: Decimal) -> str:
     return f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def dir_nota(nota_id: int) -> Path:
-    p = DIR_DADOS / "notas" / f"{nota_id:05d}"
+def dir_nota(estado: Estado, nota_id: int) -> Path:
+    p = estado.pasta / "notas" / f"{nota_id:05d}"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -172,7 +172,7 @@ def processar_email(cfg: dict, seg: Segredos, estado: Estado, cliente: dict, em:
 
     nota_id = estado.criar(em.message_id, cliente["id"], "pendente", dados, _email_dict(em))
     for nome, conteudo in em.pdfs:
-        (dir_nota(nota_id) / f"relatorio_{nome}").write_bytes(conteudo)
+        (dir_nota(estado, nota_id) / f"relatorio_{nome}").write_bytes(conteudo)
     repetido = _periodo_repetido(estado, cliente["id"], dados)
     if repetido:
         motivos.append(repetido)
@@ -209,7 +209,7 @@ def emitir_e_enviar(cfg: dict, seg: Segredos, estado: Estado, nota_id: int, envi
     cert = CertificadoA1.de_pfx(seg.cert_pfx, seg.cert_senha)
     cert.verificar_validade()
     api = ClienteSefin(cfg["ambiente"], cert)
-    pasta = dir_nota(nota_id)
+    pasta = dir_nota(estado, nota_id)
 
     ja_emitida = nota["status"] == "emitida"
     try:
@@ -275,7 +275,7 @@ def enviar_nota(cfg, seg, estado, nota_id, autorizada, danfse: bytes) -> None:
     if env.get("anexar_xml", False):
         anexos.append((f"{autorizada.chave_acesso}.xml", autorizada.xml, "application/xml"))
     if env.get("anexar_relatorio", True):
-        for arq in sorted(dir_nota(nota_id).glob("relatorio_*")):
+        for arq in sorted(dir_nota(estado, nota_id).glob("relatorio_*")):
             anexos.append((arq.name.removeprefix("relatorio_"), arq.read_bytes(), "application/pdf"))
 
     em = json.loads(nota["email_json"])

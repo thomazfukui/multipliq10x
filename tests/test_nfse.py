@@ -194,7 +194,6 @@ class FakeApi:
 
 @pytest.fixture
 def ambiente_fake(monkeypatch, tmp_path, pfx):
-    monkeypatch.setattr(pipeline, "DIR_DADOS", tmp_path)
     monkeypatch.setattr(pipeline, "ClienteSefin", FakeApi)
     FakeApi.emitidas = []
     enviados = []
@@ -398,3 +397,35 @@ def test_alertas_do_leitor_bloqueiam_automatico(cfg, cliente):
 def test_tomador_com_nome_novo(cfg, cliente):
     raiz = dps_mod.montar_dps(cfg, cliente, nota_exemplo())
     assert raiz.findtext("n:infDPS/n:toma/n:xNome", namespaces=NS) == "COOPERATIVA ADMINISTRADORA DE CONSÓRCIOS ROMA"
+
+
+def test_homologacao_e_producao_tem_registros_separados(tmp_path, monkeypatch):
+    from nfse_auto import estado as estado_mod
+    monkeypatch.setattr(estado_mod, "DIR_DADOS", tmp_path)
+    h, p = Estado(ambiente="homologacao"), Estado(ambiente="producao")
+    h.criar("<r1@roma>", "consorcio_roma", "enviada", {}, {})
+    assert h.ja_processado("<r1@roma>") and not p.ja_processado("<r1@roma>")
+    assert h.pasta != p.pasta
+
+
+def test_ja_enviado_exige_assunto_identico(monkeypatch):
+    import imaplib
+    assuntos = []
+
+    class FakeImap:
+        def __init__(self, *a): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def login(self, *a): pass
+        def list(self): return "OK", [b'(\\HasNoChildren \\All) "/" "[Gmail]/All Mail"']
+        def select(self, *a, **k): return "OK", [b"1"]
+        def search(self, *a): return "OK", [b" ".join(str(i).encode() for i in range(1, len(assuntos) + 1))]
+        def fetch(self, num, _):
+            return "OK", [(b"1", f"Subject: {assuntos[int(num) - 1]}\r\n\r\n".encode())]
+
+    monkeypatch.setattr(imaplib, "IMAP4_SSL", FakeImap)
+    alvo = "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 29/10/2026)"
+    assuntos[:] = ["[HOMOLOGAÇÃO - SEM VALOR FISCAL] " + alvo, "Re: " + alvo]
+    assert not email_gmail.ja_enviado("eu@gmail.com", "x", alvo)
+    assuntos.append(alvo)
+    assert email_gmail.ja_enviado("eu@gmail.com", "x", alvo)

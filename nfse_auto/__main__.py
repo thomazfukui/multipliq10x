@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from . import dps as dps_mod
-from . import extrator, pipeline
+from . import email_gmail, extrator, pipeline
 from .certificado import CertificadoA1
 from .config import ErroConfig, carregar_config, carregar_segredos, cliente_por_id
 from .estado import Estado
@@ -50,7 +50,7 @@ def cmd_status(args, cfg):
 
 def cmd_ler_relatorio(args, cfg):
     pdfs = [Path(p).read_bytes() for p in args.pdf]
-    rel = extrator.extrair(pdfs, args.corpo or "")
+    rel = extrator.extrair(pdfs, args.corpo or "", args.assunto or "")
     print(f"Valor:         R$ {rel.valor}")
     print(f"Período:       {rel.periodo_inicio or '(não informado)'} até {rel.periodo_fim}")
     print(f"CNPJ tomador:  {rel.cnpj_tomador or '(não informado)'}")
@@ -59,7 +59,10 @@ def cmd_ler_relatorio(args, cfg):
     if rel.instrucoes:
         print(f"Instruções:    {rel.instrucoes}")
     if args.cliente:
-        dados, motivos = pipeline.preparar_dados(cfg, cliente_por_id(cfg, args.cliente), rel)
+        dados, motivos = pipeline.preparar_dados(
+            cfg, cliente_por_id(cfg, args.cliente), rel,
+            data_assunto=email_gmail.data_ate_no_assunto(args.assunto or ""),
+        )
         print("\nDescrição da nota:\n" + dados["descricao"])
         print("\nBloqueios para emissão automática:", "; ".join(motivos) or "nenhum")
 
@@ -131,6 +134,7 @@ def main(argv=None):
     s = sub.add_parser("ler-relatorio", help="testa a leitura de um PDF de relatório (não emite nada)")
     s.add_argument("pdf", nargs="+")
     s.add_argument("--corpo", help="texto do e-mail, se quiser incluir")
+    s.add_argument("--assunto", help="assunto do e-mail, ex.: 'RELATÓRIO DE COMISSÃO <> ... (até 22/10/2026)'")
     s.add_argument("--cliente", help="id do cliente, para mostrar a descrição montada")
     s.set_defaults(func=cmd_ler_relatorio)
 

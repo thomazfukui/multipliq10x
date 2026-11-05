@@ -61,7 +61,9 @@ comercial, que precisa emitir uma NFS-e com base nele. Extraia:
 
 - o valor TOTAL da comissão que deve ser faturado na nota (não some estornos nem itens
   marcados como já pagos, a menos que o relatório indique que o total a faturar os inclui);
-- a data final do período do relatório (a nota cita "Referente ao período: ... até <data final>");
+- a data final do período do relatório (a nota cita "Referente ao período: ... até <data final>").
+  O assunto do e-mail costuma trazer essa data, ex.: "(até 22/10/2026)"; se o PDF mostrar
+  outra data, use a do PDF, marque confiança "media" e explique;
 - a data inicial, se existir;
 - quaisquer instruções de faturamento que apareçam no PDF ou no corpo do e-mail.
 
@@ -116,7 +118,10 @@ def interpretar(bruto: dict) -> DadosRelatorio:
 
 
 def extrair(
-    pdfs: list[bytes], corpo_email: str = "", cliente: anthropic.Anthropic | None = None
+    pdfs: list[bytes],
+    corpo_email: str = "",
+    assunto: str = "",
+    cliente: anthropic.Anthropic | None = None,
 ) -> DadosRelatorio:
     cliente = cliente or anthropic.Anthropic()
     conteudo: list[dict] = [
@@ -133,7 +138,8 @@ def extrair(
     conteudo.append(
         {
             "type": "text",
-            "text": INSTRUCOES + "\n\nCorpo do e-mail que trouxe o PDF:\n<email>\n"
+            "text": INSTRUCOES + f"\n\nAssunto do e-mail: {assunto or '(vazio)'}"
+            + "\n\nCorpo do e-mail que trouxe o PDF:\n<email>\n"
             + (corpo_email or "(vazio)")[:8000] + "\n</email>",
         }
     )

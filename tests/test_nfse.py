@@ -203,15 +203,19 @@ def ambiente_fake(monkeypatch, tmp_path, pfx):
     return seg, Estado(tmp_path / "e.db"), enviados
 
 
-def email_relatorio(mid="<r1@roma>"):
+ASSUNTO = "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até {})"
+
+
+def email_relatorio(mid="<r1@roma>", ate=None):
+    ate = ate or (date.today() - timedelta(days=5)).strftime("%d/%m/%Y")
     return email_gmail.EmailRecebido(message_id=mid, remetente="comissao@consorcioroma.com.br",
-                                     assunto="Relatório de comissão", data="", corpo="segue",
+                                     assunto=ASSUNTO.format(ate), data="", corpo="segue",
                                      pdfs=[("rel.pdf", b"%PDF")])
 
 
 def test_modo_manual_cria_pendente_e_avisa(cfg, cliente, ambiente_fake, monkeypatch):
     seg, estado, enviados = ambiente_fake
-    monkeypatch.setattr(extrator, "extrair", lambda pdfs, corpo: rel())
+    monkeypatch.setattr(extrator, "extrair", lambda *a: rel())
     nid = pipeline.processar_email(cfg, seg, estado, cliente, email_relatorio())
     assert estado.obter(nid)["status"] == "pendente"
     assert FakeApi.emitidas == []
@@ -232,7 +236,7 @@ def test_modo_manual_cria_pendente_e_avisa(cfg, cliente, ambiente_fake, monkeypa
 def test_modo_automatico_emite_e_responde_no_fio(cfg, cliente, ambiente_fake, monkeypatch):
     seg, estado, enviados = ambiente_fake
     cfg.update(modo_aprovacao="automatico", ambiente="producao")
-    monkeypatch.setattr(extrator, "extrair", lambda pdfs, corpo: rel())
+    monkeypatch.setattr(extrator, "extrair", lambda *a: rel())
     nid = pipeline.processar_email(cfg, seg, estado, cliente, email_relatorio())
     assert estado.obter(nid)["status"] == "enviada"
     args, kw = enviados[-1]
@@ -250,7 +254,7 @@ def test_modo_automatico_emite_e_responde_no_fio(cfg, cliente, ambiente_fake, mo
 def test_automatico_com_baixa_confianca_vai_para_aprovacao(cfg, cliente, ambiente_fake, monkeypatch):
     seg, estado, _ = ambiente_fake
     cfg["modo_aprovacao"] = "automatico"
-    monkeypatch.setattr(extrator, "extrair", lambda pdfs, corpo: rel(confianca="baixa"))
+    monkeypatch.setattr(extrator, "extrair", lambda *a: rel(confianca="baixa"))
     nid = pipeline.processar_email(cfg, seg, estado, cliente, email_relatorio())
     assert estado.obter(nid)["status"] == "pendente"
     assert FakeApi.emitidas == []
@@ -259,10 +263,32 @@ def test_automatico_com_baixa_confianca_vai_para_aprovacao(cfg, cliente, ambient
 def test_falha_na_leitura_registra_erro(cfg, cliente, ambiente_fake, monkeypatch):
     seg, estado, enviados = ambiente_fake
 
-    def quebra(pdfs, corpo):
+    def quebra(*a):
         raise extrator.ErroExtracao("PDF ilegível")
 
     monkeypatch.setattr(extrator, "extrair", quebra)
     nid = pipeline.processar_email(cfg, seg, estado, cliente, email_relatorio())
     assert estado.obter(nid)["status"] == "erro"
     assert "ERRO" in enviados[-1][0][3]
+
+
+# ------------------------------------------------------------------ padrão do assunto
+def test_padrao_do_assunto(cliente):
+    alvo = email_gmail.normalizar(cliente["email_assunto_contem"])
+    assert alvo in email_gmail.normalizar(ASSUNTO.format("22/10/2026"))
+    assert alvo in email_gmail.normalizar("Relatorio de Comissao <> L.D.T. Comunicacao Visual LTDA (ate 30/11/2026)")
+    assert alvo not in email_gmail.normalizar("RELATÓRIO DE COMISSÃO <> OUTRA EMPRESA LTDA")
+    assert email_gmail.data_ate_no_assunto(ASSUNTO.format("22/10/2026")) == date(2026, 10, 22)
+    assert email_gmail.data_ate_no_assunto("sem data") is None
+    assert email_gmail._e_resposta("Re: " + ASSUNTO) and not email_gmail._e_resposta(ASSUNTO)
+    assert email_gmail._termo_imap(cliente["email_assunto_contem"]).isascii()
+
+
+def test_data_do_assunto_diferente_do_pdf_bloqueia(cfg, cliente, ambiente_fake, monkeypatch):
+    seg, estado, _ = ambiente_fake
+    cfg["modo_aprovacao"] = "automatico"
+    monkeypatch.setattr(extrator, "extrair", lambda *a: rel(periodo_fim=date.today() - timedelta(days=5)))
+    nid = pipeline.processar_email(cfg, seg, estado, cliente, email_relatorio(ate="01/01/2026"))
+    assert estado.obter(nid)["status"] == "pendente"
+    assert "difere da data do assunto" in estado.obter(nid)["motivo"]
+    assert FakeApi.emitidas == []

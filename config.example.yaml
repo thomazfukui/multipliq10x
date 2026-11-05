@@ -37,10 +37,12 @@ dps:
 clientes:
   - id: consorcio_roma
     nome: Consórcio Roma
-    # Filtros do e-mail que traz o relatório de comissão (PDF anexo)
-    email_remetentes:
-      - comissao@consorcioroma.com.br
-    email_assunto_contem: ""        # opcional, ex.: "relatório de comissão"
+    # Como reconhecer o e-mail do relatório de comissão (com PDF anexo).
+    # Padrão do assunto: "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA (até 22/10/2026)"
+    # A comparação ignora acentos e maiúsculas; a data "(até ...)" é usada para conferir a leitura do PDF.
+    email_assunto_contem: "RELATÓRIO DE COMISSÃO <> L.D.T. COMUNICACAO VISUAL LTDA"
+    # Opcional: restringir também pelo remetente (deixe [] para aceitar qualquer remetente)
+    email_remetentes: []
     # Limites de segurança: fora disso a nota volta para aprovação manual
     valor_minimo: 1.00
     valor_maximo: 50000.00

@@ -33,8 +33,17 @@ def dir_nota(nota_id: int) -> Path:
 
 
 # --------------------------------------------------------------------------- preparação
-def preparar_dados(cfg: dict, cliente: dict, rel: extrator.DadosRelatorio, hoje: date | None = None) -> tuple[dict, list[str]]:
-    """Monta os dados da nota e lista os motivos que impedem a emissão automática."""
+def preparar_dados(
+    cfg: dict,
+    cliente: dict,
+    rel: extrator.DadosRelatorio,
+    hoje: date | None = None,
+    data_assunto: date | None = None,
+) -> tuple[dict, list[str]]:
+    """Monta os dados da nota e lista os motivos que impedem a emissão automática.
+
+    `data_assunto` é a data "(até DD/MM/AAAA)" do assunto do e-mail, usada como conferência.
+    """
     hoje = hoje or date.today()
     serv = cliente["servico"]
     motivos: list[str] = []
@@ -58,6 +67,10 @@ def preparar_dados(cfg: dict, cliente: dict, rel: extrator.DadosRelatorio, hoje:
     cnpj_rel = dps_mod.so_digitos(rel.cnpj_tomador)
     if cnpj_rel and cnpj_rel != dps_mod.so_digitos(cliente["tomador"]["cnpj"]):
         motivos.append(f"CNPJ no relatório ({rel.cnpj_tomador}) difere do tomador configurado.")
+    if data_assunto and data_assunto != rel.periodo_fim:
+        motivos.append(
+            f"Data final lida no PDF ({fim}) difere da data do assunto do e-mail ({_br(data_assunto)})."
+        )
     if rel.periodo_fim > hoje:
         motivos.append(f"Data final do período ({fim}) está no futuro.")
 
@@ -94,7 +107,7 @@ def verificar_emails(cfg: dict, seg: Segredos, estado: Estado, dias: int = 30) -
     for cliente in cfg["clientes"]:
         emails = email_gmail.buscar_relatorios(
             seg.gmail_usuario, seg.gmail_senha_app,
-            cliente["email_remetentes"], cliente.get("email_assunto_contem", ""), dias,
+            cliente.get("email_remetentes") or [], cliente.get("email_assunto_contem", ""), dias,
         )
         for em in emails:
             if not em.message_id or estado.ja_processado(em.message_id):
@@ -113,13 +126,15 @@ def _email_dict(em: email_gmail.EmailRecebido) -> dict:
 
 def processar_email(cfg: dict, seg: Segredos, estado: Estado, cliente: dict, em: email_gmail.EmailRecebido) -> int:
     try:
-        rel = extrator.extrair([c for _, c in em.pdfs], em.corpo)
+        rel = extrator.extrair([c for _, c in em.pdfs], em.corpo, em.assunto)
     except Exception as e:  # noqa: BLE001 — qualquer falha vira pendência para o responsável
         nota_id = estado.criar(em.message_id, cliente["id"], "erro", {}, _email_dict(em), f"Falha ao ler o relatório: {e}")
         _alertar(cfg, seg, nota_id, f"Não consegui ler o relatório do e-mail \"{em.assunto}\".\n\nErro: {e}")
         return nota_id
 
-    dados, motivos = preparar_dados(cfg, cliente, rel)
+    dados, motivos = preparar_dados(
+        cfg, cliente, rel, data_assunto=email_gmail.data_ate_no_assunto(em.assunto)
+    )
     nota_id = estado.criar(em.message_id, cliente["id"], "pendente", dados, _email_dict(em))
     for nome, conteudo in em.pdfs:
         (dir_nota(nota_id) / f"relatorio_{nome}").write_bytes(conteudo)

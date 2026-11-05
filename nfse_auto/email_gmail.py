@@ -4,7 +4,9 @@ from __future__ import annotations
 import email
 import email.policy
 import imaplib
+import re
 import smtplib
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from email.message import EmailMessage
@@ -44,20 +46,47 @@ def _pdfs(msg: email.message.EmailMessage) -> list[tuple[str, bytes]]:
     return saida
 
 
+def normalizar(texto: str) -> str:
+    """Minúsculas, sem acentos e com espaços simples — para comparar assuntos."""
+    sem_acento = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", sem_acento).strip().casefold()
+
+
+def _termo_imap(assunto: str) -> str:
+    """Maior palavra ASCII do assunto: o IMAP do imaplib não aceita acentos na busca."""
+    palavras = [w for w in re.split(r"[\s<>()]+", assunto) if w.isascii() and len(w) >= 4]
+    return max(palavras, key=len) if palavras else ""
+
+
+def _e_resposta(assunto: str) -> bool:
+    return bool(re.match(r"^\s*(re|res|fw|fwd|enc|encaminhada)\s*:", assunto, re.I))
+
+
 def buscar_relatorios(
-    usuario: str, senha: str, remetentes: list[str], assunto_contem: str = "", dias: int = 30
+    usuario: str, senha: str, remetentes: list[str] | None, assunto_contem: str = "", dias: int = 30
 ) -> list[EmailRecebido]:
-    """Busca e-mails com PDF anexo dos remetentes informados nos últimos `dias`."""
+    """Busca e-mails com PDF anexo nos últimos `dias`.
+
+    Filtra pelos remetentes (se houver) e pelo trecho do assunto (sem diferenciar acentos
+    ou maiúsculas). Ignora respostas/encaminhamentos e mensagens enviadas por você mesmo,
+    para não confundir a própria nota enviada com um relatório novo.
+    """
+    if not remetentes and not assunto_contem:
+        raise ValueError("Configure 'email_remetentes' e/ou 'email_assunto_contem' para o cliente.")
     desde = (date.today() - timedelta(days=dias)).strftime("%d-%b-%Y")
-    achados: list[EmailRecebido] = []
+    alvo = normalizar(assunto_contem)
+    termo = _termo_imap(assunto_contem)
+    achados: dict[str, EmailRecebido] = {}
     with imaplib.IMAP4_SSL(IMAP_HOST) as imap:
         imap.login(usuario, senha)
         imap.select(_caixa_todos(imap), readonly=True)
-        for rem in remetentes:
-            crit = ["SINCE", desde, "FROM", f'"{rem}"']
-            if assunto_contem:
-                crit += ["SUBJECT", f'"{assunto_contem}"']
-            typ, dados = imap.search("UTF-8", *crit)
+        for rem in remetentes or [None]:
+            crit = ["SINCE", desde]
+            if rem:
+                crit += ["FROM", f'"{rem}"']
+            if termo:
+                crit += ["SUBJECT", f'"{termo}"']
+            typ, dados = imap.search(None, *crit)
             if typ != "OK":
                 continue
             for num in dados[0].split():
@@ -65,21 +94,39 @@ def buscar_relatorios(
                 if typ != "OK" or not partes or not isinstance(partes[0], tuple):
                     continue
                 msg = email.message_from_bytes(partes[0][1], policy=email.policy.default)
-                pdfs = _pdfs(msg)
-                if not pdfs:
+                assunto = str(msg.get("Subject", ""))
+                remetente = parseaddr(msg.get("From", ""))[1].lower()
+                if remetente == usuario.lower() or _e_resposta(assunto):
                     continue
-                achados.append(
-                    EmailRecebido(
-                        message_id=(msg.get("Message-ID") or "").strip(),
-                        remetente=parseaddr(msg.get("From", ""))[1].lower(),
-                        assunto=str(msg.get("Subject", "")),
-                        data=str(msg.get("Date", "")),
-                        corpo=_corpo_texto(msg),
-                        pdfs=pdfs,
-                        references=str(msg.get("References", "")),
-                    )
+                if alvo and alvo not in normalizar(assunto):
+                    continue
+                pdfs = _pdfs(msg)
+                mid = (msg.get("Message-ID") or "").strip()
+                if not pdfs or not mid:
+                    continue
+                achados[mid] = EmailRecebido(
+                    message_id=mid,
+                    remetente=remetente,
+                    assunto=assunto,
+                    data=str(msg.get("Date", "")),
+                    corpo=_corpo_texto(msg),
+                    pdfs=pdfs,
+                    references=str(msg.get("References", "")),
                 )
-    return achados
+    return list(achados.values())
+
+
+def data_ate_no_assunto(assunto: str):
+    """Extrai a data de "(até 22/10/2026)" do assunto, se houver."""
+    from datetime import datetime
+
+    m = re.search(r"at[eé]\s*(\d{1,2}/\d{1,2}/\d{4})", assunto or "", re.I)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m.group(1), "%d/%m/%Y").date()
+    except ValueError:
+        return None
 
 
 def _caixa_todos(imap: imaplib.IMAP4_SSL) -> str:

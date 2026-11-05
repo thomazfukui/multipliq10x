@@ -91,7 +91,11 @@ def montar_dps(cfg: dict, cliente: dict, nota: DadosNota) -> etree._Element:
     _sub(inf, "nDPS", nota.numero_dps)
     _sub(inf, "dCompet", nota.competencia.isoformat())
     _sub(inf, "tpEmit", "1")  # 1 = Prestador
-    _sub(inf, "finNFSe", "0")  # 0 = NFS-e regular (obrigatório no leiaute da reforma tributária)
+    # Em 11/2026 os ambientes divergem: a Produção Restrita já valida o leiaute da reforma
+    # tributária (exige finNFSe, recusa cNBS em cServ); a produção ainda usa o leiaute antigo.
+    leiaute_novo = cfg["ambiente"] == "homologacao"
+    if leiaute_novo:
+        _sub(inf, "finNFSe", "0")  # 0 = NFS-e regular
     _sub(inf, "cLocEmi", prest["municipio_ibge"])
 
     # Prestador: quando ele mesmo é o emitente, só CNPJ + regime (nome/endereço vêm do cadastro).
@@ -119,7 +123,7 @@ def montar_dps(cfg: dict, cliente: dict, nota: DadosNota) -> etree._Element:
     cs = _sub(s, "cServ")
     _sub(cs, "cTribNac", so_digitos(serv["codigo_tributacao_nacional"]))
     _sub(cs, "xDescServ", nota.descricao)
-    if serv.get("codigo_nbs"):
+    if serv.get("codigo_nbs") and not leiaute_novo:
         _sub(cs, "cNBS", so_digitos(serv["codigo_nbs"]))
 
     v = _sub(inf, "valores")

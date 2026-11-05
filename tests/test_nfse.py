@@ -84,10 +84,20 @@ def test_montar_dps_campos(cfg, cliente):
     assert g("n:infDPS/n:toma/n:CNPJ") == "61550836000154"
     assert g("n:infDPS/n:toma/n:xNome") == "COOPERATIVA ADMINISTRADORA DE CONSÓRCIOS ROMA"
     assert g("n:infDPS/n:serv/n:cServ/n:cTribNac") == "170601"
-    assert g("n:infDPS/n:serv/n:cServ/n:cNBS") == "114061900"
+    # Homologação (Produção Restrita) valida o leiaute novo: finNFSe sim, cNBS não.
+    assert g("n:infDPS/n:finNFSe") == "0"
+    assert g("n:infDPS/n:serv/n:cServ/n:cNBS") is None
     assert g("n:infDPS/n:serv/n:locPrest/n:cLocPrestacao") == "4113700"
     assert g("n:infDPS/n:valores/n:vServPrest/n:vServ") == "1234.50"
     assert g("n:infDPS/n:valores/n:trib/n:totTrib/n:pTotTribSN") == "2.01"
+
+
+def test_montar_dps_producao_leiaute_antigo(cfg, cliente):
+    raiz = dps_mod.montar_dps({**cfg, "ambiente": "producao"}, cliente, nota_exemplo())
+    g = lambda xp: raiz.findtext(xp, namespaces=NS)  # noqa: E731
+    assert g("n:infDPS/n:tpAmb") == "1"
+    assert g("n:infDPS/n:finNFSe") is None
+    assert g("n:infDPS/n:serv/n:cServ/n:cNBS") == "114061900"
 
 
 def test_valor_zero_rejeitado(cfg, cliente):
